@@ -1148,7 +1148,7 @@ def cross_val_score(estimator, X, y=None, scoring=None, cv=None, n_jobs=1,
 
 def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
                    fit_params, return_train_score=False,
-                   return_parameters=False):
+                   return_parameters=False, return_y=False):
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -1212,7 +1212,7 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
             msg = '%s' % (', '.join('%s=%s' % (k, v)
                           for k, v in parameters.items()))
         print("[CV] %s %s" % (msg, (64 - len(msg)) * '.'))
-
+    
     # Adjust lenght of sample weights
     n_samples = _num_samples(X)
     fit_params = fit_params if fit_params is not None else {}
@@ -1226,6 +1226,10 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
     start_time = time.time()
 
     X_train, y_train = _safe_split(estimator, X, y, train)
+    if 'corrupt_y' in fit_params:
+        y_train = fit_params['corrupt_y']
+        fit_params.pop('corrupt_y')
+        
     X_test, y_test = _safe_split(estimator, X, y, test, train)
     if y_train is None:
         estimator.fit(X_train, **fit_params)
@@ -1244,6 +1248,8 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose, parameters,
         print("[CV] %s %s" % ((64 - len(end_msg)) * '.', end_msg))
 
     ret = [train_score] if return_train_score else []
+    if return_y:
+        ret.extend([estimator.predict(X_test),np.copy(y_test)]) 
     ret.extend([test_score, _num_samples(X_test), scoring_time])
     if return_parameters:
         ret.append(parameters)
