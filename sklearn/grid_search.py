@@ -279,7 +279,8 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
     @abstractmethod
     def __init__(self, estimator, scoring=None, loss_func=None,
                  score_func=None, fit_params=None, n_jobs=1, iid=True,
-                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs'):
+                 refit=True, cv=None, verbose=0, joined_pred_metric=None,
+                 pre_dispatch='2*n_jobs'):
 
         self.scoring = scoring
         self.estimator = estimator
@@ -292,6 +293,7 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
         self.cv = cv
         self.verbose = verbose
         self.pre_dispatch = pre_dispatch
+        self.joined_pred_metric = joined_pred_metric
 
     def score(self, X, y=None):
         """Returns the score on the given test data and labels, if the search
@@ -375,7 +377,8 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
         )(
             delayed(_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
                                     train, test, self.verbose, parameters,
-                                    self.fit_params, return_parameters=True)
+                                    self.fit_params, return_parameters=True,
+                                    return_y = self.joined_pred_metric != None)
             for parameters in parameter_iterable
             for train, test in cv)
 
@@ -389,17 +392,27 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
             n_test_samples = 0
             score = 0
             all_scores = []
-            for this_score, this_n_test_samples, _, parameters in \
+            if self.joined_pred_metric != None and callable(self.joined_pred_metric):
+                y_preds = []
+                y_trues = []
+                for y_pred, y_true, _, _, _, parameters in \
                     out[grid_start:grid_start + n_folds]:
-                all_scores.append(this_score)
-                if self.iid:
-                    this_score *= this_n_test_samples
-                    n_test_samples += this_n_test_samples
-                score += this_score
-            if self.iid:
-                score /= float(n_test_samples)
+                    y_preds.append(y_pred)
+                    y_trues.append(y_true)
+                score = self.joined_pred_metric(np.concatenate(y_trues),np.concatenate(y_preds))
+                all_scores.append([score]*n_folds)
             else:
-                score /= float(n_folds)
+                for this_score, this_n_test_samples, _, parameters in \
+                        out[grid_start:grid_start + n_folds]:
+                    all_scores.append(this_score)
+                    if self.iid:
+                        this_score *= this_n_test_samples
+                        n_test_samples += this_n_test_samples
+                    score += this_score
+                if self.iid:
+                    score /= float(n_test_samples)
+                else:
+                    score /= float(n_folds)
             scores.append((score, parameters))
             # TODO: shall we also store the test_fold_sizes?
             grid_scores.append(_CVScoreTuple(
@@ -572,10 +585,10 @@ class GridSearchCV(BaseSearchCV):
 
     def __init__(self, estimator, param_grid, scoring=None, loss_func=None,
                  score_func=None, fit_params=None, n_jobs=1, iid=True,
-                 refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs'):
+                 refit=True, cv=None, verbose=0, joined_pred_metric=None, pre_dispatch='2*n_jobs'):
         super(GridSearchCV, self).__init__(
             estimator, scoring, loss_func, score_func, fit_params, n_jobs, iid,
-            refit, cv, verbose, pre_dispatch)
+            refit, cv, verbose, joined_pred_metric, pre_dispatch)
         self.param_grid = param_grid
         _check_param_grid(param_grid)
 
